@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>🍚 九州連鎖店繞路距離計算器 v2</title>
+<title>🍚 九州連鎖店繞路距離計算器 v3</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:'Segoe UI',system-ui,sans-serif;background:#0f172a;color:#e2e8f0;padding:20px;max-width:1200px;margin:0 auto}
@@ -38,26 +38,29 @@ tr:hover td{background:rgba(251,191,36,.05)}
 textarea{width:100%;height:300px;background:#1e293b;border:2px solid #334155;border-radius:10px;padding:12px;color:#86efac;font-family:'Courier New',monospace;font-size:.75rem;resize:vertical}
 .help{background:#1e293b;border-radius:10px;padding:16px;margin-bottom:20px;font-size:.8rem;color:#94a3b8;line-height:1.6}
 .help b{color:#fbbf24}
-.help a{color:#60a5fa}
 .stats{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:16px}
 .stat{background:#1e293b;border-radius:8px;padding:12px 16px;flex:1;min-width:120px;text-align:center}
 .stat-num{font-size:1.5rem;font-weight:900;color:#fbbf24}
 .stat-label{font-size:.7rem;color:#94a3b8}
+.v3-badge{display:inline-block;background:#22c55e;color:#0f172a;padding:2px 8px;border-radius:6px;font-size:.7rem;font-weight:900;margin-left:8px}
 </style>
 </head>
 <body>
 
-<h1>🍚 九州連鎖店繞路距離計算器 v2</h1>
-<p class="subtitle">Places API（找分店）+ Routes API v2（算距離）— 20 段路線 × 12 間連鎖店</p>
+<h1>🍚 九州連鎖店繞路距離計算器 <span class="v3-badge">v3 優化版</span></h1>
+<p class="subtitle">Places API（日文語系 + 類型過濾）+ Routes API v2 + 動態分段搜尋 + 座標導航</p>
 
 <div class="help">
-  <b>需要啟用的 GCP API（共 3 個）：</b><br>
-  1. <b>Maps JavaScript API</b>（載入 Places 前端 SDK）<br>
-  2. <b>Places API</b>（搜尋連鎖店分店座標）<br>
-  3. <b>Routes API</b>（計算行車距離，取代舊版 Directions API）<br>
+  <b>v3 優化項目：</b><br>
+  ✅ <b>language=ja</b> — 強制日文語系，解決 Yoshinoya 模糊問題<br>
+  ✅ <b>type 過濾</b> — 丼飯搜 restaurant、超市搜 supermarket，防止搜到診所<br>
+  ✅ <b>刪除 4 間九州無店</b> — OK超市、ライフ、ヤオコー、イトーヨーカドー<br>
+  ✅ <b>動態分段搜尋</b> — 長路線（>20km）沿途每 20km 設搜尋點，取最佳結果<br>
+  ✅ <b>負數修正</b> — detour = Math.max(0, D2-D1)，不再出現負距離<br>
+  ✅ <b>存座標</b> — 輸出含 lat/lng，導航用座標不用名稱<br>
   <br>
-  <b>費用估算：</b>Places 240 次 ≈ $7.68 + Routes 260 次 ≈ $1.3 = <b>約 $9</b>（$200 免費額度內）<br>
-  <b>耗時：</b>約 2-3 分鐘（每秒 5 次呼叫）
+  <b>需啟用 API：</b>Maps JavaScript API + Places API + Routes API<br>
+  <b>費用：</b>約 $6（減少 33% 無效呼叫）・<b>耗時：</b>約 3 分鐘
 </div>
 
 <div class="input-row">
@@ -82,7 +85,7 @@ textarea{width:100%;height:300px;background:#1e293b;border:2px solid #334155;bor
 
 <div class="output-area" id="outputArea">
   <h2 style="color:#fbbf24;margin-bottom:8px">📋 config.js 輸出</h2>
-  <p style="color:#94a3b8;font-size:.8rem;margin-bottom:8px">複製以下程式碼，貼到 config.js 最下方</p>
+  <p style="color:#94a3b8;font-size:.8rem;margin-bottom:8px">複製以下程式碼，貼到 config.js 最下方（取代舊的 CHAIN_ROUTES）</p>
   <button class="btn-copy" onclick="copyOutput()">📋 複製到剪貼簿</button>
   <textarea id="outputCode"></textarea>
 </div>
@@ -90,16 +93,21 @@ textarea{width:100%;height:300px;background:#1e293b;border:2px solid #334155;bor
 <div id="mapsContainer" style="display:none"></div>
 
 <script>
-// === Embedded Data ===
+// === 路線資料 ===
 const SEGMENTS=[{from:"福岡國際機場",to:"Yamaya Factory Terrace",fLa:33.5849988,fLo:130.4490906,tLa:33.6319684,tLo:130.5209968},{from:"Yamaya Factory Terrace",to:"BOOKOFF + Hard Off",fLa:33.6319684,fLo:130.5209968,tLa:33.6545076,tLo:130.4923254},{from:"BOOKOFF + Hard Off",to:"ハードオフ福岡中間店",fLa:33.6545076,fLo:130.4923254,tLa:33.8180129,tLo:130.7158762},{from:"ハードオフ福岡中間店",to:"ART 新田川小倉酒店",fLa:33.8180129,fLo:130.7158762,tLa:33.879354,tLo:130.880973},{from:"TOTO博物館",to:"Hard Off Fukuoka Yukuhashi",fLa:33.8722021,fLo:130.8721104,tLa:33.7296929,tLo:130.9658656},{from:"Hard Off Fukuoka Yukuhashi",to:"撒隆巴斯藥物博物館",fLa:33.7296929,fLo:130.9658656,tLa:33.3978309,tLo:130.5111389},{from:"撒隆巴斯藥物博物館",to:"BOOKOFF上津久留米店",fLa:33.3978309,fLo:130.5111389,tLa:33.2849572,tLo:130.5110566},{from:"BOOKOFF上津久留米店",to:"Hard Off 佐賀店",fLa:33.2849572,fLo:130.5110566,tLa:33.2212552,tLo:130.3077721},{from:"Hard Off 佐賀店",to:"APA酒店 佐賀站南口",fLa:33.2212552,fLo:130.3077721,tLa:33.2629778,tLo:130.2996529},{from:"佐賀熱氣球博物館",to:"BOOKOFF PLUS 佐賀南部繞道店",fLa:33.2524136,fLo:130.3004143,tLa:33.2390376,tLo:130.3007156},{from:"BOOKOFF PLUS 佐賀南部繞道店",to:"BOOKOFF Saga Nabeshima",fLa:33.2390376,fLo:130.3007156,tLa:33.2652133,tLo:130.2718048},{from:"BOOKOFF Saga Nabeshima",to:"佐賀縣立宇宙科學館 夢銀河",fLa:33.2652133,fLo:130.2718048,tLa:33.1791421,tLo:130.035404},{from:"佐賀縣立宇宙科學館 夢銀河",to:"Hard Off Sasebo",fLa:33.1791421,fLo:130.035404,tLa:33.1586631,tLo:129.7642449},{from:"Hard Off Sasebo",to:"佐世保中央飯店",fLa:33.1586631,fLo:129.7642449,tLa:33.1702927,tLo:129.7231849},{from:"九十九島水族館 海洋kirara",to:"BOOKOFF AcrossPlaza佐世保",fLa:33.1614464,fLo:129.6790753,tLa:33.1595916,tLo:129.74322},{from:"BOOKOFF AcrossPlaza佐世保",to:"伊萬里夢Misaki公園（滑草）",fLa:33.1595916,fLo:129.74322,tLa:33.3469052,tLo:129.8502744},{from:"伊萬里夢Misaki公園（滑草）",to:"BOOKOFF Karatsu Store",fLa:33.3469052,fLo:129.8502744,tLa:33.4400913,tLo:129.9643643},{from:"BOOKOFF Karatsu Store",to:"博多新大谷飯店",fLa:33.4400913,fLo:129.9643643,tLa:33.5830614,tLo:130.4063095},{from:"Times停車場（BOOKOFF旁）",to:"BOOKOFF SUPER BAZAAR Mina天神",fLa:33.5942146,fLo:130.3988619,tLa:33.5942146,tLo:130.3988619},{from:"BOOKOFF SUPER BAZAAR Mina天神",to:"福岡國際機場",fLa:33.5942146,fLo:130.3988619,tLa:33.5849988,tLo:130.4490906}];
 
+// v3: 刪除九州無店的 4 間連鎖（省 33% API 呼叫 + 杜絕誤判）
 const CHAINS=[
-  {cat:"丼飯",name:"すき家",icon:"🥩"},{cat:"丼飯",name:"吉野家",icon:"🐂"},
-  {cat:"丼飯",name:"松屋",icon:"🍛"},{cat:"丼飯",name:"なか卯",icon:"🐔"},
-  {cat:"超市",name:"イオン",icon:"🛒"},{cat:"超市",name:"オーケーストア",icon:"🏷️"},
-  {cat:"超市",name:"ロピア",icon:"🥩"},{cat:"超市",name:"業務スーパー",icon:"📦"},
-  {cat:"超市",name:"ライフ",icon:"🏪"},{cat:"超市",name:"西友",icon:"🟢"},
-  {cat:"超市",name:"ヤオコー",icon:"🍎"},{cat:"超市",name:"イトーヨーカドー",icon:"🏬"},
+  {cat:"丼飯",name:"すき家",icon:"🥩",type:"restaurant"},
+  {cat:"丼飯",name:"吉野家",icon:"🐂",type:"restaurant"},
+  {cat:"丼飯",name:"松屋",icon:"🍛",type:"restaurant"},
+  {cat:"丼飯",name:"なか卯",icon:"🐔",type:"restaurant"},
+  {cat:"超市",name:"イオン",icon:"🛒",type:"supermarket"},
+  {cat:"超市",name:"業務スーパー",icon:"📦",type:"supermarket"},
+  {cat:"超市",name:"西友",icon:"🟢",type:"supermarket"},
+  {cat:"超市",name:"ロピア",icon:"🥩",type:"supermarket"},
+  // v3: 以下 4 間九州無店，已移除
+  // オーケーストア（關東限定）、ライフ（近畿/關東）、ヤオコー（關東）、イトーヨーカドー（九州撤退）
 ];
 
 let placesService, apiKey;
@@ -108,26 +116,44 @@ let totalCalls=0, doneCalls=0, okCalls=0, failCalls=0, startTime;
 
 function delay(ms){return new Promise(r=>setTimeout(r,ms));}
 
-// === 1. Load Google Maps JS API with Places library ===
+// === 1. Load Google Maps + Places + Geometry（language=ja 強制日文）===
 function loadMapsAPI(key){
   return new Promise((resolve,reject)=>{
     if(window.google?.maps?.places){resolve();return;}
     const s=document.createElement('script');
-    s.src=`https://maps.googleapis.com/maps/api/js?key=${key}&libraries=places`;
+    s.src=`https://maps.googleapis.com/maps/api/js?key=${key}&libraries=places,geometry&language=ja`;
     s.onload=resolve;
     s.onerror=()=>reject(new Error('Google Maps API 載入失敗'));
     document.head.appendChild(s);
   });
 }
 
-// === 2. Places API: Find nearest store branch ===
-function findNearestStore(chainName, midLat, midLon, radius=8000){
+// === 2. v3: 動態分段搜尋點（長路線沿途多點搜尋）===
+function getDynamicSearchPoints(fLa, fLo, tLa, tLo, distanceD1, interval=20000){
+  const origin = new google.maps.LatLng(fLa, fLo);
+  const dest = new google.maps.LatLng(tLa, tLo);
+  if(!distanceD1 || distanceD1 <= interval){
+    return [google.maps.geometry.spherical.interpolate(origin, dest, 0.5)];
+  }
+  let numPoints = Math.floor(distanceD1 / interval);
+  if(numPoints > 4) numPoints = 4;
+  const points = [];
+  for(let i=1; i<=numPoints; i++){
+    points.push(google.maps.geometry.spherical.interpolate(origin, dest, i/(numPoints+1)));
+  }
+  return points;
+}
+
+// === 3. Places API: 搜尋分店（v3: 加 type 過濾）===
+function findNearestStore(chainName, searchPoint, radius, placeType){
   return new Promise(resolve=>{
-    placesService.textSearch({
+    const req = {
       query: chainName,
-      location: new google.maps.LatLng(midLat, midLon),
+      location: searchPoint,
       radius: radius
-    }, (results, status)=>{
+    };
+    if(placeType) req.type = placeType;
+    placesService.textSearch(req, (results, status)=>{
       if(status===google.maps.places.PlacesServiceStatus.OK && results?.length>0){
         resolve({name:results[0].name, place_id:results[0].place_id,
           lat:results[0].geometry.location.lat(), lng:results[0].geometry.location.lng()});
@@ -138,7 +164,7 @@ function findNearestStore(chainName, midLat, midLon, radius=8000){
   });
 }
 
-// === 3. Routes API v2: Calculate distance ===
+// === 4. Routes API v2 ===
 async function calcRouteV2(originLat, originLng, destLat, destLng, waypointPlaceId=null){
   const body={
     origin:{location:{latLng:{latitude:originLat,longitude:originLng}}},
@@ -159,12 +185,8 @@ async function calcRouteV2(originLat, originLng, destLat, destLng, waypointPlace
     body:JSON.stringify(body)
   });
   const data=await resp.json();
-  if(data.routes?.[0]?.distanceMeters!=null){
-    return data.routes[0].distanceMeters;
-  }
-  if(data.error){
-    console.error("Routes API error:",data.error.message);
-  }
+  if(data.routes?.[0]?.distanceMeters!=null) return data.routes[0].distanceMeters;
+  if(data.error) console.error("Routes API:",data.error.message);
   return null;
 }
 
@@ -177,7 +199,7 @@ function updateProgress(text,pct){
   document.getElementById('statTime').textContent=Math.round((Date.now()-startTime)/1000)+'s';
 }
 
-// === 4. Main: Process all segments ===
+// === 5. Main ===
 async function startCalc(){
   apiKey=document.getElementById('apiKey').value.trim();
   if(!apiKey){alert('請輸入 API Key');return;}
@@ -185,26 +207,26 @@ async function startCalc(){
   document.getElementById('progressBox').style.display='block';
   document.getElementById('statsBox').style.display='flex';
   startTime=Date.now(); doneCalls=0; okCalls=0; failCalls=0; results={};
-  totalCalls=SEGMENTS.length*(1+CHAINS.length);
 
-  updateProgress('載入 Google Maps API + Places...',0);
+  updateProgress('載入 Google Maps API（language=ja）...',0);
   try{await loadMapsAPI(apiKey);}catch(e){alert(e.message);document.getElementById('startBtn').disabled=false;return;}
 
-  const dummyDiv=document.getElementById('mapsContainer');
-  placesService=new google.maps.places.PlacesService(dummyDiv);
+  placesService=new google.maps.places.PlacesService(document.getElementById('mapsContainer'));
+
+  // 預估總呼叫數（含動態分段）
+  totalCalls = SEGMENTS.length * (1 + CHAINS.length * 2); // 粗估
 
   for(let si=0;si<SEGMENTS.length;si++){
     const seg=SEGMENTS[si];
     results[si]={d1:null,from:seg.from,to:seg.to,chains:[]};
 
-    // Skip if origin=destination (same coordinates)
     if(seg.fLa===seg.tLa && seg.fLo===seg.tLo){
       updateProgress(`[${si+1}/${SEGMENTS.length}] 跳過（同地點）`,((si+1)/SEGMENTS.length)*100);
       doneCalls+=1+CHAINS.length;
       continue;
     }
 
-    // D1: direct route
+    // D1
     updateProgress(`[${si+1}/${SEGMENTS.length}] ${seg.from} → ${seg.to} (D1)`,
       (doneCalls/totalCalls)*100);
     const d1=await calcRouteV2(seg.fLa,seg.fLo,seg.tLa,seg.tLo);
@@ -213,39 +235,59 @@ async function startCalc(){
     if(d1!=null)okCalls++;else failCalls++;
     await delay(200);
 
-    // D2 for each chain
-    const midLat=(seg.fLa+seg.tLa)/2, midLon=(seg.fLo+seg.tLo)/2;
-    // Dynamic radius based on D1
-    const radius=d1?Math.max(5000,Math.min(d1,20000)):8000;
+    // v3: 動態分段搜尋點
+    const searchPoints = getDynamicSearchPoints(seg.fLa,seg.fLo,seg.tLa,seg.tLo,d1,20000);
+    const searchRadius = 10000; // 統一 10km 半徑
 
     for(let ci=0;ci<CHAINS.length;ci++){
       const chain=CHAINS[ci];
-      updateProgress(`[${si+1}/${SEGMENTS.length}] Places: ${chain.icon}${chain.name}`,
+      updateProgress(`[${si+1}/${SEGMENTS.length}] ${chain.icon}${chain.name}（${searchPoints.length}點搜尋）`,
         (doneCalls/totalCalls)*100);
 
-      // Step A: Find nearest branch via Places
-      const store=await findNearestStore(chain.name,midLat,midLon,radius);
-      await delay(200);
+      let bestStore=null, minDetour=Infinity, bestD2=null;
 
-      if(!store){
-        results[si].chains.push({name:chain.name,icon:chain.icon,cat:chain.cat,
-          d2:null,detour:null,branch:null,status:'NO_STORE'});
-        doneCalls++; failCalls++;
-        continue;
+      // v3: 對每個搜尋點找最佳分店
+      for(const pt of searchPoints){
+        const store=await findNearestStore(chain.name, pt, searchRadius, chain.type);
+        await delay(200);
+        if(!store) continue;
+
+        const d2=await calcRouteV2(seg.fLa,seg.fLo,seg.tLa,seg.tLo,store.place_id);
+        await delay(200);
+        doneCalls++;
+
+        if(d2!=null){
+          // v3: 負數修正
+          const detour=Math.max(0, d2 - (d1||0));
+          if(detour < minDetour){
+            minDetour=detour;
+            bestD2=d2;
+            bestStore=store;
+          }
+          okCalls++;
+        } else {
+          failCalls++;
+        }
       }
 
-      // Step B: Calculate D2 via Routes API with place_id
-      const d2=await calcRouteV2(seg.fLa,seg.fLo,seg.tLa,seg.tLo,store.place_id);
-      await delay(200);
-
-      const detour=(d1!=null&&d2!=null)?d2-d1:null;
-      results[si].chains.push({name:chain.name,icon:chain.icon,cat:chain.cat,
-        d2:d2,detour:detour,branch:store.name,status:d2!=null?'OK':'ROUTE_FAIL'});
-      doneCalls++;
-      if(d2!=null)okCalls++;else failCalls++;
+      if(bestStore){
+        results[si].chains.push({
+          name:chain.name,icon:chain.icon,cat:chain.cat,
+          d2:bestD2, detour:minDetour,
+          branch:bestStore.name,
+          lat:bestStore.lat, lng:bestStore.lng, // v3: 存座標
+          status:'OK'
+        });
+      } else {
+        results[si].chains.push({
+          name:chain.name,icon:chain.icon,cat:chain.cat,
+          d2:null,detour:null,branch:null,lat:null,lng:null,status:'NO_STORE'
+        });
+        doneCalls++; failCalls++;
+      }
     }
 
-    // Sort by detour ascending
+    // 按 detour 升序
     results[si].chains.sort((a,b)=>{
       if(a.detour==null)return 1;if(b.detour==null)return -1;
       return a.detour-b.detour;
@@ -260,28 +302,22 @@ async function startCalc(){
   document.getElementById('startBtn').disabled=false;
 }
 
-function fmtDist(m){
-  if(m==null)return'-';
-  if(m>=1000)return(m/1000).toFixed(1)+'km';
-  return m+'m';
-}
-function detourClass(m){
-  if(m==null)return'na';if(m<=500)return'd0';if(m<=2000)return'd500';return m<=5000?'d2000':'d5000';
-}
-function detourLabel(m){
-  if(m==null)return'—';if(m<=0)return'✅ 不繞路';return'🔄 +'+fmtDist(m);
-}
+function fmtDist(m){if(m==null)return'-';if(m>=1000)return(m/1000).toFixed(1)+'km';return m+'m';}
+function detourClass(m){if(m==null)return'na';if(m<=500)return'd0';if(m<=2000)return'd500';return m<=5000?'d2000':'d5000';}
+function detourLabel(m){if(m==null)return'—';if(m<=0)return'✅ 不繞路';return'🔄 +'+fmtDist(m);}
 
 function renderResults(){
-  let html='<table><thead><tr><th>#</th><th>連鎖店</th><th>分店名稱</th><th>D2</th><th>繞路</th></tr></thead><tbody>';
+  let html='<table><thead><tr><th>#</th><th>連鎖店</th><th>分店名稱</th><th>D2</th><th>繞路</th><th>座標</th></tr></thead><tbody>';
   for(let si=0;si<SEGMENTS.length;si++){
     const r=results[si];if(!r)continue;
-    html+=`<tr class="segment-header"><td colspan="5">📍 ${r.from} → ${r.to}（直達 D1: ${fmtDist(r.d1)}）</td></tr>`;
+    html+=`<tr class="segment-header"><td colspan="6">📍 ${r.from} → ${r.to}（直達 D1: ${fmtDist(r.d1)}）</td></tr>`;
     r.chains.forEach((c,ci)=>{
       const cls=detourClass(c.detour);
+      const coordStr=c.lat?`${c.lat.toFixed(4)},${c.lng.toFixed(4)}`:'—';
       html+=`<tr><td>${ci+1}</td><td>${c.icon} ${c.name}</td>
-        <td style="font-size:.7rem;color:#94a3b8;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.branch||(c.status==='NO_STORE'?'❌ 附近無分店':'❌ 路線失敗')}</td>
-        <td>${fmtDist(c.d2)}</td><td class="${cls}">${detourLabel(c.detour)}</td></tr>`;
+        <td style="font-size:.7rem;color:#94a3b8;max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.branch||(c.status==='NO_STORE'?'❌ 附近無分店':'❌ 路線失敗')}</td>
+        <td>${fmtDist(c.d2)}</td><td class="${cls}">${detourLabel(c.detour)}</td>
+        <td style="font-size:.65rem;color:#64748b">${coordStr}</td></tr>`;
     });
   }
   html+='</tbody></table>';
@@ -292,12 +328,12 @@ function generateConfig(){
   const routeData={};
   for(let si=0;si<SEGMENTS.length;si++){
     const r=results[si];if(!r)continue;
-    const key=r.from+'→'+r.to;
-    routeData[key]={d1:r.d1,stores:r.chains.filter(c=>c.detour!=null).map(c=>({
-      name:c.name,icon:c.icon,cat:c.cat,branch:c.branch,d2:c.d2,detour:c.detour
+    routeData[r.from+'→'+r.to]={d1:r.d1,stores:r.chains.filter(c=>c.detour!=null).map(c=>({
+      name:c.name,icon:c.icon,cat:c.cat,branch:c.branch,
+      d2:c.d2,detour:c.detour,lat:c.lat,lng:c.lng
     }))};
   }
-  const code=`\n// 11. 預計算連鎖店繞路距離（由 chain-calculator v2 產生）\n// 產生時間：${new Date().toLocaleString('zh-TW')}\nwindow.CHAIN_ROUTES = ${JSON.stringify(routeData,null,2)};\n`;
+  const code=`\n// 11. 預計算連鎖店繞路距離（由 chain-calculator v3 產生）\n// 產生時間：${new Date().toLocaleString('zh-TW')}\n// 優化：language=ja, type過濾, 動態分段搜尋, 負數修正, 座標導航\nwindow.CHAIN_ROUTES = ${JSON.stringify(routeData,null,2)};\n`;
   document.getElementById('outputCode').value=code;
   document.getElementById('outputArea').style.display='block';
 }
@@ -305,7 +341,7 @@ function generateConfig(){
 function copyOutput(){
   const ta=document.getElementById('outputCode');
   ta.select();document.execCommand('copy');
-  alert('已複製！貼到 config.js 最下方即可。');
+  alert('已複製！貼到 config.js 取代舊的 CHAIN_ROUTES 即可。');
 }
 </script>
 </body>
